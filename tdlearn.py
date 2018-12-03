@@ -27,23 +27,19 @@ class Player(object):
 	def get_state(self): 
 		return (inventory, backorders)
 
-	def fill_orders(self, otherplayer): 
+	def fill_orders(self): 
 		if self.inventory >= orders: 
 			self.inventory -= orders 
 		else if self.inventory = 0 
-			self.backorders += self.orders
+			self.backorders += orders
 		else: 
 			self.backorders = orders - self.inventory 
 			self.inventory = 0 
 
-	def place_orders(self): 
-		if demand < 0: 
-			raise Exception("you placed an order for the td agent")
-		return self.demand 
-
-	def receive_cases(self):
+	def receive_cases(self, orders):
 		self.inventory += self.incoming2
 		self.incoming2 = self.incoming1 
+		self.incoming1 = orders 
 
 
 class BeerGame(object):
