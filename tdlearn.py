@@ -10,10 +10,10 @@ import seaborn as sns
 import string
 import matplotlib.pyplot as plt
 
-def update_Qi(Qval, reward, alpha, gamma, beta):
+def update_Qi(Qval0, Qval1, reward1, alpha, gamma, beta):
     """ update q-value of selected action, given reward and alpha
     """
-    return Qval + alpha * (reward - Qval)
+    return Qval0 + alpha * (reward1 + gamma*Qval1 - Qval0)
 
 class Player(object):
 	# defines other players in BeerGame 
@@ -27,7 +27,7 @@ class Player(object):
 	def get_state(self): 
 		return (inventory, backorders)
 
-	def fill_orders(self): 
+	def fill_orders(self, orders): 
 		if self.inventory >= orders: 
 			self.inventory -= orders 
 		else if self.inventory = 0 
@@ -36,10 +36,10 @@ class Player(object):
 			self.backorders = orders - self.inventory 
 			self.inventory = 0 
 
-	def receive_cases(self, orders):
+	def receive_cases(self, cases):
 		self.inventory += self.incoming2
 		self.incoming2 = self.incoming1 
-		self.incoming1 = orders 
+		self.incoming1 = cases 
 
 
 class BeerGame(object):
@@ -55,13 +55,12 @@ class BeerGame(object):
 	def __init__(self, lowBound, highBound, inventory, demand):
 		self.target = target 
 		self.actions = np.arange(lowBound, highBound+1)
-		self.factory = Player(demand)
-		self.distributer = Player() # td-learning agent
-		self.wholesaler = Player(demand)
-		self.retailer = Player(demand)
+		self.factory = Player(demand,0,inventory)
+		self.distributer = Player(0,0,inventory) # td-learning agent
+		self.wholesaler = Player(demand,0,inventory)
+		self.retailer = Player(demand,0,inventory)
 		self.orders = [4,0,4,4] # holds orders from last trial
 		self.players = [self.factory, self.distributer, self.wholesaler, self.retailer]
-		self.no_players = 4
 
 		if (demand < lowBound or demand > highBound):
 			raise Exception('target not included in the indicated actions')
@@ -72,49 +71,10 @@ class BeerGame(object):
 
 	def get_reward(self, cases_ordered): 
 		n = len(self.players)
-		for i in n: 
+		for i in range(n):
+			self.player[i].receive_cases(self.orders[i])
+		self.orders[1] = cases_ordered 
 
-
-"""
-class MultiArmedBandit(object):
-    """ defines a multi-armed bandit task
-    ::Arguments::
-        preward (list): 1xN vector of reward probaiblities for each of N bandits
-        rvalues (list): 1xN vector of payout values for each of N bandits
-    """
-    def __init__(self, preward=[.9, .8, .7], rvalues=[1, 1, 1]):
-        self.preward = preward
-        self.rvalues = rvalues
-        try:
-            assert(len(self.rvalues)==len(self.preward))
-        except AssertionError:
-            self.rvalues = np.ones(len(self.preward))
-
-    def set_params(self, **kwargs):
-        error_msg = """preward and rvalues must be same size
-                    setting all rvalues to 1"""
-        kw_keys = list(kwargs)
-        if 'preward' in kw_keys:
-            self.preward = kwargs['preward']
-            if 'rvalues' not in kw_keys:
-                try:
-                    assert(len(self.rvalues)==len(self.preward))
-                except AssertionError:
-                    self.rvalues = np.ones(len(self.preward))
-
-        if 'rvalues' in kw_keys:
-            self.rvalues = kwargs['rvalues']
-            try:
-                assert(len(self.rvalues)==len(self.preward))
-            except AssertionError:
-                raise(AssertionError, error_msg)
-
-    def get_feedback(self, action_ix):
-        pOutcomes = np.array([self.preward[action_ix], 1-self.preward[action_ix]])
-        Outcomes = np.array([self.rvalues[action_ix], 0])
-        feedback = np.random.choice(Outcomes, p=pOutcomes)
-        return feedback
-"""
 
 # adapted from qlearning.py in ADMCode 
 class TDagent(object):
@@ -129,7 +89,7 @@ class TDagent(object):
                         IF rvalues is None, all values set to 1
     """
     def __init__(self, alpha=.04, beta=3.5, gamma=.02, epsilon=.1, lowbound=0, 
-    	highbound=60, inventory=4, demand=4):
+    	highbound=10, inventory=4, demand=4):
         if (inventory<0 or demand<=0 or lowbound<0 or highbound<lowbound):
             raise Exception('parameters make no sense')
         self.beer = BeerGame(lowbound=lowbound, highbound=highbound, inventory=inventory, demand=demand)
@@ -176,14 +136,17 @@ class TDagent(object):
 
 	    for t in range(ntrials):
 
-	        # select bandit arm (action)
+	        # select bandit arm (action) from state space 
 	        act_i = np.random.choice(self.actions, p=pdata[t, :])
 
-	        # get reward and state  
-	        (r,s) = self.bandits.get_feedback(act_i)
+	        # get reward for current action  
+	        r = self.bandits.get_reward(act_i)
 
-	        # update value of selected action
-	        qdata[t+1, act_i] = update_Qi(qdata[t, act_i], r, self.alpha)
+	        for i in range(t): 
+	        	last = self.choices[i]
+
+	        	# update value of selected action
+	        	qdata[i, last] = update_Qi(qdata[i, last], qdata[i+1, act_j], self.alpha, self.gamma)
 
 	        # broadcast old q-values for unchosen actions
 	        for act_j in self.actions[np.where(self.actions!=act_i)]:
@@ -201,8 +164,21 @@ class TDagent(object):
 	    if get_output:
 	        return self.data.copy()
 
-
-
+	    def make_output_df(self):
+        """ generate output dataframe with trialwise Q and P measures for each bandit,
+        as well as choice selection, and feedback
+        """
+	        df = pd.concat([pd.DataFrame(dat) for dat in [self.qdata, self.pdata]], axis=1)
+	        columns = np.hstack(([['{}{}'.format(x, c) for c in self.actions] for x in ['q', 'p']]))
+	        df.columns = columns
+	        df.insert(0, 'trial', np.arange(1, df.shape[0]+1))
+	        df['choice'] = self.choices
+	        df['feedback'] = self.feedback
+	        r = np.array(self.bandits.rvalues)
+	        p = np.array(self.bandits.preward)
+	        df['optimal'] = np.where(df['choice']==np.argmax(p * r), 1, 0)
+	        df.insert(0, 'agent', 1)
+	        self.data = df.copy()
 
 
 
