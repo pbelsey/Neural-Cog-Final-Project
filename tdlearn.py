@@ -50,7 +50,8 @@ class BeerGame(object):
 		# demand (int): external customer demand 
 	# EXPECTED: 
 		# span = array([lowbound, ..., highBound])
-		# target = target 
+		# target = target
+        
 	def __init__(self, lowBound, highBound, inventory, demand):
 		self.target = target 
 		self.actions = np.arange(lowBound, highBound+1)
@@ -90,10 +91,11 @@ class TDagent(object):
 	def __init__(self, alpha=.04, beta=3.5, gamma=.02, epsilon=.1, lowbound=0, highbound=10, inventory=4, demand=4):
 		if (inventory<0 or demand<=0 or lowbound<0 or highbound<lowbound):
 			raise Exception('parameters make no sense')
-		self.beer = BeerGame(lowbound=lowbound, highbound=highbound, inventory=inventory, demand=demand)
+		self.beer = BeerGame(lowBound=lowbound, highBound=highbound, inventory=inventory, demand=demand)
 		self.updateQ = lambda Qval, r, alpha: Qval + alpha*(r - Qval)
 		self.updateP = lambda Qvector, act_i, beta: np.exp(beta*Qvector[act_i])/np.sum(np.exp(beta*Qvector))
 		self.set_params(alpha=alpha, beta=beta, gamma=gamma, epsilon=epsilon)
+		self.nact = 1    
 
 	def set_params(self, **kwargs):
 		""" update learning rate, inv. temperature, and/or
@@ -125,9 +127,11 @@ class TDagent(object):
 			DataFrame (Ntrials x Nbandits) with trialwise Q and P
 			values for each bandit
 		"""
+        
 		pdata = np.zeros((ntrials+1, self.nact))
 		pdata[0, :] = np.array([1/self.nact]*self.nact)
 		qdata = np.zeros_like(pdata)
+
 		self.choices = []
 		self.feedback = []
 
