@@ -34,21 +34,22 @@ class Player(object):
     def get_state(self): 
         return (self.inventory, self.backorders)
 
-    def fill_orders(self, orders): 
+    def fill_orders(self, nextplayer, orders): 
         if self.inventory >= orders: 
             self.inventory -= orders 
-            return orders
+            nextplayer.receive_cases(orders)
         elif self.inventory == 0:
             self.backorders += orders
-            return 0
+            nextplayer.receive_cases(0)
         else: 
             self.backorders = orders - self.inventory 
+            nextplayer.receive_cases(self.inventory)
             self.inventory = 0 
-            return self.inventory
 
     def receive_cases(self, cases):
         self.inventory += self.incoming2
         self.incoming2 = self.incoming1 
+        self.incoming1 = cases 
 
 class BeerGame(object):
     # defines the beer game task 
@@ -63,11 +64,12 @@ class BeerGame(object):
     def __init__(self, lowBound=0, highBound=10, inventory=4, demand=4):
         self.actions = np.arange(lowBound, highBound+1)
         self.factory = Player(demand,0,inventory)
-        self.distributer = Player(0,0,inventory) # td-learning agent
+        self.distributer = Player(demand,0,inventory) # td-learning agent
         self.wholesaler = Player(demand,0,inventory)
         self.retailer = Player(demand,0,inventory)
-        self.orders = [demand,self.actions[random.randrange(lowBound,highBound+1)],demand,demand,demand] # holds orders from last trial
-        self.players = [self.factory, self.distributer, self.wholesaler, self.retailer]
+        self.customer = Player(demand,0,inventory)
+        self.orders = [demand,self.actions[random.randrange(0,len(self.actions))],demand,demand,demand] # holds orders from last trial
+        self.players = [self.factory, self.distributer, self.wholesaler, self.retailer, self.customer]
 
         if (demand < lowBound or demand > highBound):
             raise Exception('target not included in the indicated actions')
@@ -78,12 +80,8 @@ class BeerGame(object):
 
     def get_reward(self, cases_ordered): 
         n = len(self.players)
-        for i in range(n):
-            self.players[i].receive_cases(self.orders[i])
-            if i == 0: 
-                self.players[i].incoming1 = self.orders[i]
-            else: 
-                self.players[i].incoming1 = self.players[i-1].fill_orders(self.orders[i]) 
+        for i in range(n-1):
+            self.players[i].fill_orders(self.players[i+1], self.orders[i])
         orders = cases_ordered
         (inventory, backorders) = self.distributer.get_state()
         return (inventory * -0.5 + backorders * -0.5)
@@ -101,13 +99,11 @@ class TDagent(object):
         rvalues (list): 1xN vector of payout values for each of N bandits
                         IF rvalues is None, all values set to 1
     """
-    def __init__(self, alpha=.04, beta=3.5, gamma=.02, epsilon=.1, lowbound=0, 
-    	highbound=10, inventory=4, demand=4):
+    def __init__(self, alpha=.1, beta=3.5, gamma=.99, epsilon=.1, lowbound=0, 
+    	highbound=10, inventory=5, demand=5):
         if (inventory<0 or demand<=0 or lowbound<0 or highbound<lowbound):
             raise Exception('parameters make no sense')
         self.beergame = BeerGame(lowBound=lowbound, highBound=highbound, inventory=inventory, demand=demand)
-        self.updateQ = lambda Qval, r, alpha: Qval + alpha*(r - Qval)
-        self.updateP = lambda Qvector, act_i, beta: np.exp(beta*Qvector[act_i])/np.sum(np.exp(beta*Qvector))
         self.highbound = highbound
         self.lowbound = lowbound
         self.demand = demand
@@ -154,21 +150,21 @@ class TDagent(object):
 
             # select bandit arm (action) from state space 
             act_i = np.random.choice(self.actions, p=pdata[t, :])
-
+            
             # get reward for current action  
             r = self.beergame.get_reward(act_i)
-
-            for i in range(t): 
-                last = self.choices[i]
-
-                # update value of selected action
-                qdata[i, last] = update_Qi(qdata[i, last], qdata[i+1, act_j], r, self.alpha, self.gamma)
-
-                # broadcast old q-values for unchosen actions
-            for act_j in self.actions[np.where(self.actions!=act_i)]:
+            
+            if t>0: 
+            # update value of selected action
+                qdata[t+1, act_i] = update_Qi(qdata[t-1, self.last], qdata[t, act_i], r, self.alpha, self.gamma)
+                        
+            # broadcast old q-values for unchosen actions
+            for act_j in range(self.nact):
+                if act_j == act_i: continue 
                 qdata[t+1, act_j] = qdata[t, act_j]
-
-                # update action selection probabilities and store data
+                
+            self.last = act_i
+            # update action selection probabilities and store data
             pdata[t+1, :] = update_Pall(qdata[t+1, :], self.beta)
             self.choices.append(act_i)
             self.feedback.append(r)
