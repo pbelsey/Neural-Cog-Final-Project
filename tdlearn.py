@@ -35,16 +35,26 @@ class Player(object):
         return (self.inventory, self.backorders)
 
     def fill_orders(self, nextplayer, orders): 
-        if self.inventory >= orders: 
-            self.inventory -= orders 
-            nextplayer.receive_cases(orders)
-        elif self.inventory == 0:
-            self.backorders += orders
-            nextplayer.receive_cases(0)
-        else: 
-            self.backorders = orders - self.inventory 
-            nextplayer.receive_cases(self.inventory)
+        if self.inventory >= orders and self.backorders == 0: 
+            self.inventory -= orders
+            nextplayer.receive_cases(orders) 
+        elif self.inventory >= (orders + self.backorders): 
+            nextplayer.receive_cases(orders + self.backorders)
+            self.inventory -= (orders + self.backorders)
+            self.backorders = 0 
+        elif self.inventory >= self.backorders and self.inventory < (orders + self.backorders): 
+            nextplayer.receive_cases(self.backorders + orders - self.inventory) 
+            self.inventory -= self.backorders
+            self.backorders = orders - self.inventory
             self.inventory = 0 
+        elif self.inventory > 0 and self.inventory < self.backorders:
+            nextplayer.receive_cases(self.backorders - self.inventory) 
+            self.backorders -= self.inventory 
+            self.backorders += orders 
+            self.inventory = 0 
+        else: 
+            nextplayer.receive_cases(0)
+            self.backorders += orders 
 
     def receive_cases(self, cases):
         self.inventory += self.incoming2
